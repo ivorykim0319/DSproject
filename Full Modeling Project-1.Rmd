@@ -1,0 +1,688 @@
+---
+title: "EDA/Prediction-Airline Customer Satisfaction Level"
+author: "Sangah Kim"
+date: '2022-10-02'
+output: html_document
+---
+
+#Add libraries
+```{r}
+library(dplyr)
+library(tidyr)
+library(dplyr)
+library(tidyverse)
+library(corrplot)
+#library(psych)
+library(GPArotation)
+library(ggplot2)  
+library(DescTools)
+library(glmnet)
+library(randomForest)
+library(rpart)
+```
+
+#Data Preparation
+##Read data
+```{r}
+airline_satisfaction <-read.csv("train.csv")
+airline_satisfaction_test <- read.csv("test.csv")
+```
+
+###Checking the data
+```{r}
+summary(airline_satisfaction)
+str(airline_satisfaction)
+#checking the dependent variable
+table(airline_satisfaction$satisfaction)
+```
+#Exploring the data
+#1. Gender Vs Satisfaction
+```{r}
+dim(airline_satisfaction)
+table(airline_satisfaction$satisfaction)
+tab<-table(airline_satisfaction$satisfaction, airline_satisfaction$Gender)
+PercTable(tab=tab, col.vars=2)
+```
+
+#Plotting Gender Vs Satisfaction
+```{r}
+counts <- table(airline_satisfaction$satisfaction, airline_satisfaction$Gender)
+barplot(counts, main="Distribution of satisfaction over the population based on gender",
+  xlab="Gender", ylab="No. of people",col=c("Yellow","DarkGreen"), axes= TRUE,
+  legend = rownames(counts),args.legend = list(x = "topright"), beside=TRUE)
+```
+#2. Satisfaction Vs Loyalty 
+```{r}
+counts <- table(airline_satisfaction$satisfaction, airline_satisfaction$Customer.Type)
+counts1 <- counts
+counts1
+counts1['neutral or dissatisfied',] <- counts['neutral or dissatisfied',]/(counts['neutral or dissatisfied',]+ counts['satisfied',])
+counts1['satisfied',] <- counts['satisfied',]/(counts['neutral or dissatisfied',]+ counts['satisfied',])
+barplot(counts1, main="Distribution of satisfaction over the population based on loyalty",
+  xlab="Loyalty", ylab="Percentage of people",col=c("#6699CC","#003399"), axes= TRUE,
+  legend = rownames(counts),args.legend = list(x = "topright"), beside=TRUE)
+```
+
+#3. Age vs Satisfaction
+```{r}
+table(airline_satisfaction$Gender, airline_satisfaction$Type.of.Travel)
+table(airline_satisfaction$Gender, airline_satisfaction$Customer.Type)
+table(airline_satisfaction$Gender, airline_satisfaction$Class)
+table(airline_satisfaction$Gender, airline_satisfaction$Age)
+satisfaction_age_table <- table(airline_satisfaction$satisfaction, airline_satisfaction$Age)
+satisfaction_age_table
+plot(satisfaction_age_table['neutral or dissatisfied',],type = "o",col = "red", xlab = "Age", ylab = "No. of people",  main = "No. of people satisfied")
+lines(satisfaction_age_table['satisfied',], col="blue")
+legend("topright", legend=c("neutral or dissatisfied", "satisfied"),
+       col=c("red", "blue"), lty=1:2, cex=0.8)
+```
+
+#4. Satisfaction vs DistanceTravelled
+```{r}
+satisfaction_distance_table <- table(airline_satisfaction$satisfaction, airline_satisfaction$Flight.Distance)
+plot(satisfaction_distance_table['neutral or dissatisfied',],type = "o",col = "red", xlab = "DistanceTraveled", ylab = "No. of people",  main = "No. of people satisfied vs distance traveled")
+lines(satisfaction_distance_table['satisfied',], col="blue")
+legend("topright", legend=c("neutral or dissatisfied", "satisfied"),
+       col=c("red", "blue"), lty=1:2, cex=0.8)
+```
+#5. Satisfaction vs DelayInMinutes
+```{r}
+satisfaction_delay_table<- table(airline_satisfaction$satisfaction, airline_satisfaction$Departure.Delay.in.Minutes)
+satisfaction_delay_table1 <- satisfaction_delay_table
+satisfaction_delay_table1['satisfied',]<- satisfaction_delay_table['satisfied',]/(satisfaction_delay_table['satisfied',]+satisfaction_delay_table['neutral or dissatisfied',]) * 100
+satisfaction_delay_table1['neutral or dissatisfied',]<- satisfaction_delay_table['neutral or dissatisfied',]/(satisfaction_delay_table['satisfied',]+satisfaction_delay_table['neutral or dissatisfied',]) * 100
+satisfaction_delay_table1
+plot(satisfaction_delay_table1['neutral or dissatisfied',],type = "o",col = "red", xlab = "DelayInMinutes", ylab = "No. of people",  main = "No. of people satisfied")
+lines(satisfaction_delay_table1['satisfied',], col="blue")
+legend("topright", legend=c("neutral or dissatisfied", "satisfied"),
+       col=c("red", "blue"), lty=1:2, cex=0.8)
+```
+
+#6. Satisfaction Vs Class
+```{r}
+satisfaction_delayClass_table<- table(airline_satisfaction$Class, airline_satisfaction$satisfaction)
+
+satisfaction_delayClass_table1 <- satisfaction_delayClass_table
+satisfaction_delayClass_table1['Business',]<- satisfaction_delayClass_table['Business',]/(satisfaction_delayClass_table['Business',]+satisfaction_delayClass_table['Eco',]+satisfaction_delayClass_table['Eco Plus',]) * 100
+satisfaction_delayClass_table1['Eco',]<- satisfaction_delayClass_table['Eco',]/(satisfaction_delayClass_table['Business',]+satisfaction_delayClass_table['Eco',]+satisfaction_delayClass_table['Eco Plus',]) * 100
+satisfaction_delayClass_table1['Eco Plus',]<- satisfaction_delayClass_table['Eco Plus',]/(satisfaction_delayClass_table['Business',]+satisfaction_delayClass_table['Eco',]+satisfaction_delayClass_table['Eco Plus',]) * 100
+satisfaction_delayClass_table1
+
+barplot(satisfaction_delayClass_table1, xlab = "Satisfaction", ylab = "Percentage of people", ylim = c(0,100), beside = T, legend.text = c("Business","Economy", "EconomyPlus"), args.legend = list(x = "top", bty = "L", cex=1, box.lty=0))
+```
+
+##PCA
+
+```{r}
+pca <- prcomp(airline_satisfaction1, scale=TRUE)
+pca
+plot(pca,main="PCA: Variance Explained by Factors")
+mtext(side=1, "Factors",  line=1, font=2)
+```
+#Plotting variance explained by factors (PC1)
+```{r}
+loadings <- pca$rotation[,1:4]
+v<-loadings[order(abs(loadings[,1]), decreasing=TRUE)[1:27],1]
+loadingfit <- lapply(1:27, function(k) ( t(v[1:k])%*%v[1:k] - 3/4 )^2)
+v[1:which.min(loadingfit)]
+```
+
+###Observations
+The dataset contains 25 columns and 103904 entries from customers.
+Personal information on gender and age. And, flight habits of customers are recorded as customer type, the type of travel they use, class of flight, and the distance they have travelled.
+There are 5 character varibales. We need to convert the character variables to a factor for building a model.
+Arrival.Delay.in.Minutes is in num datatype, let's change that to int
+
+##Cleaning the dataset
+Checking the presence of NA's , outliers, and variables that are not useful
+```{r}
+any(is.na(airline_satisfaction))
+#summary(airline_satisfaction)
+```
+
+```{r}
+library(VIM)
+aggr(airline_satisfaction, cex.axis=0.5)
+aggr(airline_satisfaction,combined = TRUE, numbers=TRUE, cex.numbers=0.5)
+```
+
+Observation: 
+There are 310 missing values in "Arrival.Delay.in.Minutes". I will replace the NA's with its median=0 to normalize it.
+We will remove column X which is the serial number as it's not needed
+
+```{r}
+#Replace the NA
+airline_satisfaction$Arrival.Delay.in.Minutes[is.na(airline_satisfaction$Arrival.Delay.in.Minutes)] <-0
+#Checking the NA Values to verify
+any(is.na(airline_satisfaction))
+sum(is.na(airline_satisfaction))
+```
+
+###Convert character to factor
+Independent Variable: Replace the label with Yes and No. Neutral or dissatisfied to be "No", satisfied to be "Yes"
+```{r}
+airline_satisfaction <- airline_satisfaction %>%
+    mutate(across(where(is.character), ~ as.factor(str_squish(str_to_title(.))))) %>%
+    mutate(
+        satisfaction = str_replace_all(satisfaction, "Neutral Or Dissatisfied", replacement = "No"),
+        satisfaction = str_replace_all(satisfaction, "Satisfied", replacement = "Yes"),
+        satisfaction = factor(satisfaction, levels = c("Yes", "No"))
+    ) 
+
+#We do not need the order and id column, so we drop them. 
+airline_satisfaction <- airline_satisfaction[,-c(1,2)]
+str(airline_satisfaction)
+
+##Test data
+airline_satisfaction_test <- airline_satisfaction_test %>%
+    mutate(across(where(is.character), ~ as.factor(str_squish(str_to_title(.))))) %>%
+    mutate(
+        satisfaction = str_replace_all(satisfaction, "Neutral Or Dissatisfied", replacement = "No"),
+        satisfaction = str_replace_all(satisfaction, "Satisfied", replacement = "Yes"),
+        satisfaction = factor(satisfaction, levels = c("Yes", "No"))
+    ) 
+
+#We do not need the order and id column, so we drop them. 
+airline_satisfaction_test <- airline_satisfaction_test[,-c(1,2)]
+str(airline_satisfaction_test)
+```
+
+###dummy vairables
+We replace all factor variables into dummy variables for linear regressions, including Gender, Customer.Type, Type.of.Travel, Class(into 3 variables), satisfaction
+```{r}
+airline_satisfaction1 <- airline_satisfaction %>% mutate(
+  Gender = ifelse(airline_satisfaction$Gender == "Male",1,0),
+  Customer.Type = ifelse(airline_satisfaction$Customer.Type == "Loyal Customer",1,0),
+  Type.of.Travel = ifelse(airline_satisfaction$Type.of.Travel == "Business Travel",1,0),
+  Class.Eco = ifelse(airline_satisfaction$Class == "Eco",1,0),
+  Class.EcoPlus = ifelse(airline_satisfaction$Class == "Eco Plus",1,0),
+  Class.Business = ifelse(airline_satisfaction$Class == "Business",1,0),
+  satisfaction = ifelse(airline_satisfaction$satisfaction == 'Yes', 1,0)
+)
+airline_satisfaction1 <- airline_satisfaction1[,-5]
+glimpse(airline_satisfaction1)
+
+##Test data
+airline_satisfaction_test1 <- airline_satisfaction_test %>% mutate(
+  Gender = ifelse(airline_satisfaction_test$Gender == "Male",1,0),
+  Customer.Type = ifelse(airline_satisfaction_test$Customer.Type == "Loyal Customer",1,0),
+  Type.of.Travel = ifelse(airline_satisfaction_test$Type.of.Travel == "Business Travel",1,0),
+  Class.Eco = ifelse(airline_satisfaction_test$Class == "Eco",1,0),
+  Class.EcoPlus = ifelse(airline_satisfaction_test$Class == "Eco Plus",1,0),
+  Class.Business = ifelse(airline_satisfaction_test$Class == "Business",1,0),
+  satisfaction = ifelse(airline_satisfaction_test$satisfaction == 'Yes', 1,0)
+)
+airline_satisfaction_test1 <- airline_satisfaction_test1[,-5]
+glimpse(airline_satisfaction_test1)
+```
+
+###Outliers
+Now that the NA's are replaced, let's look at the plot of outliers in numerical variables
+```{r}
+library(ggplot2)
+airline_satisfaction_num<-select_if(airline_satisfaction,is.numeric)
+airline_satisfaction_num_p<-airline_satisfaction_num %>% gather(variable,values,1:18 )
+options(repr.plot.width = 14, repr.plot.height = 8)
+ggplot(airline_satisfaction_num_p)+
+    geom_boxplot(aes(x=variable,y=values),fill="cadetblue") + 
+    facet_wrap(~variable,ncol=6,scales="free") + 
+    theme(strip.text.x = element_blank(),
+          text = element_text(size=14))
+```
+
+```{r}
+#test data
+airline_satisfaction_num_test<-select_if(airline_satisfaction_test,is.numeric)
+airline_satisfaction_num_p_test<-airline_satisfaction_num_test %>% gather(variable,values,1:18 )
+options(repr.plot.width = 14, repr.plot.height = 8)
+ggplot(airline_satisfaction_num_p_test)+
+    geom_boxplot(aes(x=variable,y=values),fill="cadetblue") + 
+    facet_wrap(~variable,ncol=6,scales="free") + 
+    theme(strip.text.x = element_blank(),
+          text = element_text(size=14))
+```
+####The variables with outliers are departure delay, arrival delay, flight distance, and rating on check-in service. However all of these variables cannot be modified due to they contains important data
+
+
+```{r}
+library(GGally)
+ggpairs(airline_satisfaction_num[,c(2,14,17,18)])
+
+ggpairs(airline_satisfaction_num_test[,c(2,14,17,18)])
+```
+####There is high correlation between departure delay and arrival delay, even though it is reasonable in common sense, we should keep one of them to avoid multicollinearity.
+
+
+#Modeling
+```{r}
+library(tidyverse)  # data wrangling and visualization
+library(knitr)      # beautifying tables
+library(car)        # for checking assumptions, e.g. vif etc.
+library(broom)      # for tidy model output
+library(questionr)  # for odds.ratios
+library(sjPlot)     # for plotting results of log.regr.
+library(sjmisc)     # for plotting results of log.regr.
+```
+
+
+##1. Simple logistic regression
+```{r}
+#Removing Arrival delay in minutes
+typeColNum <- grep('Arrival.Delay.in.Minutes',names(airline_satisfaction1))
+airline_satisfaction1 <- airline_satisfaction1[,-typeColNum]
+#Removing Arrival delay in minutes in test
+typeColNum <- grep('Arrival.Delay.in.Minutes',names(airline_satisfaction_test1))
+airline_satisfaction_test1 <- airline_satisfaction_test1[,-typeColNum]
+#Removing Class.Business
+typeColNum <- grep('Class.Business',names(airline_satisfaction1))
+airline_satisfaction1 <- airline_satisfaction1[,-typeColNum]
+#Removing Class.Business in test
+typeColNum <- grep('Class.Business',names(airline_satisfaction_test1))
+airline_satisfaction_test1 <- airline_satisfaction_test1[,-typeColNum]
+
+lr <- glm(satisfaction ~., data = airline_satisfaction1, family = "binomial")
+summary(lr)
+confint(lr)
+exp(coef(lr))
+```
+
+
+#K FOld cross validation for simple logistic regression
+```{r}
+ctrl <- trainControl(method = "cv", number = 5)
+KFoldLogisticmodel <- train(as.factor(satisfaction) ~., data = airline_satisfaction1, method = "glm", trControl = ctrl)
+print(model)
+```
+
+#Calculating probabilites for each feature
+```{r}
+imp <- as.data.frame(varImp(lr))
+imp <- data.frame(overall = imp$Overall,
+           names   = rownames(imp))
+coeffs <- coef(lr)
+dfCoeff <- imp[order(imp$overall,decreasing = T),]
+coeffs[dfCoeff$names,]
+odds <- exp(coeffs)
+prob <- odds / (1 + odds)
+prob <- as.matrix(prob)
+prob
+names <- as.matrix(prob[,0])
+names
+coeffs
+
+df <- data.frame(prob, coeffs[,'s0'])
+df
+```
+
+#Out Sample Accuracy
+```{r}
+typeColNum <- grep('satisfaction',names(airline_satisfaction_test1))
+lr_prob <- predict.glm(lr,airline_satisfaction_test1[,-typeColNum],type="response")
+lr_predict <- rep("neg",nrow(airline_satisfaction_test1))
+lr_predict[lr_prob>.5] <- "pos"
+confusionmatrix_lr <- table(pred=lr_predict,true=airline_satisfaction_test1$satisfaction)
+val<- .5
+values_lr <- FPR_TPR( (lr_prob >= val) , airline_satisfaction_test1$satisfaction)
+values_lr
+```
+
+
+##2.Logistic regression with interactions
+```{r}
+lr.i <- glm(satisfaction ~.^2, data = airline_satisfaction1, family = "binomial")
+summary(lr.i)
+cor(airline_satisfaction1^2)
+imp <- as.data.frame(varImp(lr.i))
+imp <- data.frame(overall = imp$Overall,
+           names   = rownames(imp))
+imp[order(imp$overall,decreasing = T),]
+```
+
+#K FOld cross validation for logistic regression with interactions
+
+```{r}
+ctrl <- trainControl(method = "cv", number = 5)
+KFoldLogisticIntrmodel <- train(as.factor(satisfaction) ~.^2, data = airline_satisfaction1, method = "glm", trControl = ctrl)
+print(KFoldLogisticIntrmodel)
+```
+#Out of sample testing
+```{r}
+typeColNum <- grep('satisfaction',names(airline_satisfaction_test1))
+lr.i_prob <- predict.glm(lr.i,airline_satisfaction_test1[,-typeColNum],type="response")
+lr.i_predict <- rep("neg",nrow(airline_satisfaction_test1))
+lr.i_predict[lr.i_prob>.5] <- "pos"
+confusionmatrix_lr.i <- table(pred=lr.i_predict,true=airline_satisfaction_test1$satisfaction)
+val<- .5
+values_lr.i <- FPR_TPR((lr.i_prob >= val) , airline_satisfaction_test1$satisfaction)
+values_lr.i
+```
+
+##3. Logistic regression with interactions between variables with lasso for feature selection
+```{r}
+x <- model.matrix(satisfaction~.^2, airline_satisfaction1)[,-1]
+y <- airline_satisfaction1$satisfaction
+```
+
+#Building the model
+```{r}
+library(glmnet)
+cv.lasso <- cv.glmnet(x, y, alpha = 1, family = "binomial", trace.it = TRUE)
+# Fit the final model on the training data
+lr.l <- glmnet(x, y, alpha = 1, family = "binomial",
+                lambda = cv.lasso$lambda.min, nfolds=5)
+# Display regression coefficients
+coeffs<-coef(lr.l)
+summary(lr.l)
+```
+
+#The optimal value of lambda that minimizes the cross-validation error:
+
+```{r}
+plot(cv.lasso)
+cv.lasso$lambda.min
+cv.lasso$lambda.1se
+coef(cv.lasso, cv.lasso$lambda.min)
+coef(cv.lasso, cv.lasso$lambda.1se)
+#RMSE
+sqrt(cv.lasso$cvm[cv.lasso$lambda == cv.lasso$lambda.1se])
+#RSquared values
+R_Squared <- 1 - cv.lasso$cvm/var(airline_satisfaction1$satisfaction)
+plot(cv.lasso$lambda, R_Squared)
+```
+
+#Calculating probabilites of effect of each variable
+```{r}
+imp <- as.data.frame(varImp(lr.l, lambda = cv.lasso$lambda.min ))
+imp <- data.frame(overall = imp$Overall,
+           names   = rownames(imp))
+dfCoeff <- imp[order(imp$overall,decreasing = T),]
+coeffs[dfCoeff$names,]
+coeffs <- as.matrix(coeffs)
+odds <- exp(coeffs)
+prob <- odds / (1 + odds)
+prob <- as.matrix(prob)
+prob
+names <- as.matrix(prob[,0])
+names
+coeffs
+
+df <- data.frame(prob, coeffs[,'s0'])
+df
+```
+
+#Out sample accuracy
+```{r}
+# Make predictions on the test data
+x.test <- model.matrix(satisfaction ~.^2, airline_satisfaction_test1)[,-1]
+probabilities <- lr.l %>% predict(newx = x.test)
+predicted.classes <- ifelse(probabilities > 0.5, 1, 0)
+# Model accuracy
+observed.classes <- airline_satisfaction_test1$satisfaction
+mean(predicted.classes == observed.classes)
+```
+
+#Using the features above to make an efficient LR model
+```{r}
+lr.i <- glm(satisfaction ~(.-Gender-Departure.Arrival.time.convenient)^2-Class.Eco:Class.EcoPlus-Checkin.service:Cleanliness-Inflight.entertainment:Departure.Delay.in.Minutes-Online.boarding:Departure.Delay.in.Minutes , data = airline_satisfaction1, family = "binomial")
+summary(lr.i)
+cor(airline_satisfaction1^2)
+```
+
+#K FOld cross validation for logistic regression with interactions
+```{r}
+ctrl <- trainControl(method = "cv", number = 5)
+KFoldLogisticIntrmodel <- train(as.factor(satisfaction) ~ (.-Gender-Departure.Arrival.time.convenient)^2-Class.Eco:Class.EcoPlus-Checkin.service:Cleanliness-Inflight.entertainment:Departure.Delay.in.Minutes-Online.boarding:Departure.Delay.in.Minutes , data = airline_satisfaction1, method = "glm", trControl = ctrl)
+print(KFoldLogisticIntrmodel)
+```
+
+#Calculating the effect of probabilites 
+```{r}
+imp <- as.data.frame(varImp(lr.i))
+imp <- data.frame(overall = imp$Overall,
+           names   = rownames(imp))
+imp[order(imp$overall,decreasing = T),]
+coeffs <- coef(lr.i)
+dfCoeff <- imp[order(imp$overall,decreasing = T),]
+dfCoeff
+coeffs <- as.matrix(coeffs)
+coeffs[dfCoeff$names,]
+coeffs <- as.matrix(coeffs)
+odds <- exp(coeffs)
+prob <- odds / (1 + odds)
+prob <- as.matrix(prob)
+prob
+names <- as.matrix(prob[,0])
+names
+colnames(coeffs) <- c("a")
+
+df <- data.frame(prob, coeffs[,"a"])
+df
+```
+
+#Out sample accuracy
+# Make predictions on the test data
+```{r}
+x.test <- model.matrix(satisfaction ~(.-Gender-Departure.Arrival.time.convenient)^2-Class.Eco:Class.EcoPlus-Checkin.service:Cleanliness-Inflight.entertainment:Departure.Delay.in.Minutes-Online.boarding:Departure.Delay.in.Minutes , airline_satisfaction_test1)[,-1]
+probabilities <- lr.i %>% predict(newx = x.test)
+predicted.classes <- ifelse(probabilities > 0.5, 1, 0)
+# Model accuracy
+observed.classes <- airline_satisfaction_test1$satisfaction
+mean(predicted.classes == observed.classes)
+```
+
+
+##4. Random Forest Model
+###Install and loading packages
+```{r}
+library(ggplot2)
+library(dplyr)
+library(randomForest)
+library(caTools)
+```
+
+```{r}
+randomFmodel <- randomForest(as.factor(satisfaction) ~ ., data = airline_satisfaction1, nodesize=5, ntree = 500, mtry = 4)
+randomFmodel
+```
+#Load test data to predict
+```{r}
+satisfaction_predict = predict(randomFmodel,newdata = airline_satisfaction_test1)
+```
+#Show Confusion Matrix of Prediction
+```{r}
+confusion_mtx = table(airline_satisfaction_test1$satisfaction, satisfaction_predict)
+confusion_mtx
+
+TP <- confusion_mtx[1,1]
+FP <- confusion_mtx[1,2]
+FN <- confusion_mtx[2,1]
+TN <- confusion_mtx[2,2]
+result <- data.frame( FPR = FP / (FP + TN), TPR = TP / (TP + FN), ACC = (TP+TN)/(TP+TN+FP+FN) )
+result
+```
+#Show result details
+```{r}
+# Plotting model
+plot(randomFmodel)
+# importance show MeanDecreaseGini
+importance(randomFmodel)
+# Plot importance
+varImpPlot(randomFmodel)
+```
+
+
+##5. Classification Tree
+#Running the decision tree model with whole variables 
+```{r}
+dtree <- rpart(satisfaction ~., data = airline_satisfaction1,method = 'class')
+print(dtree)
+```
+
+#Analyzing the Importance of variable using the Variable Importance Plot
+```{r}
+library(caret)
+varImp(dtree)
+```
+
+#Re running the decision tree model with significant variables
+```{r}
+dtree_new <- rpart(satisfaction ~ Age + Type.of.Travel + Class + Inflight.wifi.service +  Ease.of.Online.booking + Online.boarding +  Inflight.entertainment + On.board.service + Leg.room.service + Arrival.Delay.in.Minutes, data = airline_satisfaction, method = 'class')
+print(dtree_new)
+```
+
+#Analyzing the Importance of variable using the Variable Importance Plot
+```{r}
+varImp(dtree_new)
+```
+
+```{r}
+summary(dtree_new)
+
+```
+
+#Visualizaing the Decision tree
+```{r}
+install.packages("rpart.plot")
+library(rpart.plot)
+par(mflow = c(1,1), xpd = NA)
+plot(dtree_new, compress = T, margin= 0.05)
+text(dtree_new, use.n =TRUE, cex = 1)
+prp(dtree_new)
+rpart.plot(dtree_new)
+```
+
+#Check the accuracy
+```{r}
+d_pred <- predict(dtree_new, airline_satisfaction_test, type= 'class')
+tree_matrix <- confusionMatrix(d_pred, airline_satisfaction_test$satisfaction)
+tree_matrix
+tree_matrix$overall[1]
+```
+
+```{r}
+x.data <- model.matrix(satisfaction ~ ., data=airline_satisfaction1)[,-1]
+y.data <- airline_satisfaction1$satisfaction == 1
+x.holdout<- model.matrix(satisfaction ~ ., data=airline_satisfaction_test1)[,-1]
+y.holdout<- airline_satisfaction_test1$satisfaction == 1
+
+#Re-scale between 0 and 1
+x_train <- x.data %*% diag(1/apply(x.data, 2, function(x) max(x, na.rm = TRUE)))
+y_train <- as.numeric(y.data)
+x_test <- x.holdout %*% diag(1/apply(x.data, 2, function(x) max(x, na.rm = TRUE)))
+y_test <- as.numeric(y.holdout) 
+
+num.input <- ncol(x_train)
+```
+
+#6.Neural Network modeling
+```{r}
+
+nn <- keras_model_sequential() %>% 
+  layer_dense(units=16,activation="relu",input_shape = c(num.input)) %>% 
+  layer_dense(units=16,activation="relu") %>% 
+  layer_dense(units=16,activation="relu") %>%
+  layer_dense(units=1,activation="sigmoid")
+
+summary(nn)
+
+```
+
+```{r}
+nn %>% compile(
+  loss = 'binary_crossentropy',
+  optimizer = optimizer_rmsprop(),
+  metrics = c('accuracy')
+)
+
+history <- nn %>% fit(
+  x_train, y_train, 
+  epochs = 50, batch_size = 128, 
+  validation_split = 0.2
+)
+```
+
+##Prediction on test data and model accuracy
+```{r}
+results.NN <- nn %>% evaluate(x_train,y_train)
+results.NN
+
+tests.NN <- nn %>% evaluate(x_test,y_test)
+tests.NN
+```
+
+```{r}
+plot(history)
+```
+
+
+#Evaluation
+```{r}
+PerformanceMeasure <- function(actual, prediction, threshold=.5) {
+  #1-mean( abs( (prediction>threshold) - actual ) )  
+  #R2(y=actual, pred=prediction, family="binomial")
+  1-mean( abs( (prediction- actual) ) )  
+}
+```
+
+```{r}
+n <- nrow(airline_satisfaction_test)
+nfold <- 12
+OOS <- data.frame(lr=rep(NA,nfold), lr.i=rep(NA,nfold), lr.l=rep(NA,nfold), randomFmodel=rep(NA,nfold), dtree_new=rep(NA,nfold)) 
+#names(OOS)<- c("Logistic Regression", "Lasso on LR with Interactions", "Post Lasso on LR with Interactions", "Classification Tree", "Average of Models")
+foldid <- rep(1:nfold,each=ceiling(n/nfold))[sample(1:n)]
+```
+
+```{r}
+Mx <- model.matrix(satisfaction~.^2, airline_satisfaction1)[,-1]
+My<- airline_satisfaction_test1$satisfaction == 1
+str(airline_satisfaction1)
+```
+
+#Doing K Fold Cross Validation
+```{r}
+
+for(k in 1:nfold){ 
+  train <- which(foldid!=k) # train on all but fold `k'
+  
+  ### Logistic regression Estimates
+  lr <- glm(satisfaction ~., data = airline_satisfaction1,subset=train, family = "binomial")
+  
+  pred.lr <- predict(lr, newdata=airline_satisfaction1[-train,], type="response")
+  OOS$lr[k] <- PerformanceMeasure(actual=My[-train], pred=pred.lr)
+  print("Logistic done")
+  ### Logistic regression with interactions Estimates
+  lr.i <- glm(satisfaction ~.^2, data = airline_satisfaction1,subset=train, family = "binomial")
+  pred.lr.i <- predict(lr.i, newdata=airline_satisfaction1[-train,], type="response")
+  OOS$lr.i[k] <- PerformanceMeasure(actual=My[-train], prediction=pred.lr.i)
+  print("Interactions done")
+  ### the logistic regression with Lasso feature selection
+  lr.l <- glm(satisfaction ~(.-Gender-Departure.Arrival.time.convenient)^2-Class.Eco:Class.EcoPlus-Checkin.service:Cleanliness-Inflight.entertainment:Departure.Delay.in.Minutes-Online.boarding:Departure.Delay.in.Minutes, data = airline_satisfaction1,subset=train, family = "binomial")
+  pred.lr.l <- predict(lr.l, newx=Mx[-train,], type="response")
+  OOS$lr.l[k] <- PerformanceMeasure(actual=My[-train], prediction=pred.lr.l)
+  print("Lasso done")
+  ### Random forest
+  randomFmodel <- randomForest(satisfaction ~ ., data = airline_satisfaction1, subset=train, nodesize=5, ntree = 500, mtry = 4)
+  pred.randomtree <- predict(randomFmodel, newdata=airline_satisfaction1[-train,])
+  OOS$randomFmodel[k] <- PerformanceMeasure(actual=My[-train], prediction=pred.randomtree)
+  print("Random forest done")
+  ### the classification tree
+  dtree_new <- rpart(satisfaction ~ Age + Type.of.Travel + Class.Eco + Class.EcoPlus+ Inflight.wifi.service +  Ease.of.Online.booking + Online.boarding +  Inflight.entertainment + On.board.service + Leg.room.service + Departure.Delay.in.Minutes, data = airline_satisfaction1, subset = train, method = 'class')
+  pred.tree <- predict(dtree_new, newdata=airline_satisfaction1[-train,], type="vector")
+  #pred.tree <- pred.tree[,2]
+  OOS$dtree_new[k] <- PerformanceMeasure(actual=My[-train], prediction=pred.tree)
+  print("Classificationtree done")
+  pred.m.average <- rowMeans(cbind(pred.tree, pred.randomtree, pred.lr.l, pred.lr.i, pred.lr, pred.lr))
+  OOS$m.average[k] <- PerformanceMeasure(actual=My[-train], prediction=pred.m.average)
+  print(paste("Iteration",k,"of",nfold,"completed"))
+}    
+```
+
+#Plotting k fold cross validation
+```{r}
+par(mar=c(7,5,.5,1)+0.3)
+OOS
+barplot(colMeans(OOS), las=2,xpd=FALSE , xlab="", ylim=c(0.975*min(colMeans(OOS)),max(colMeans(OOS))), ylab = "")
+```
+
+
+
